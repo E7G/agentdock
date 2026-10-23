@@ -317,6 +317,10 @@ public sealed class RuntimeService : IDisposable
     public string ReadOAuthPassword() => ReadProtectedText(Path.Combine(RuntimeRoot, "oauth-password.dpapi"), OAuthPasswordEntropy);
     public string ReadTunnelToken() => ReadProtectedText(Path.Combine(RuntimeRoot, "cloudflared-token.dpapi"), TunnelTokenEntropy);
 
+    public bool HasNgrokToken() => File.Exists(Path.Combine(RuntimeRoot, "ngrok-token.dpapi"));
+
+    public string ReadNgrokDomain() => ReadText(Path.Combine(RuntimeRoot, "ngrok-domain.txt")).Trim();
+
     public async Task<RuntimeExtensionOverview> GetRuntimeExtensionOverviewAsync(
         string localMcpUrl,
         CancellationToken cancellationToken = default)

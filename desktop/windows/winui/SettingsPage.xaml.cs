@@ -515,8 +515,10 @@ public sealed partial class SettingsPage : Page
         var componentState = (_snapshot?.CloudflaredComponentState ?? "not_installed")
             .Trim()
             .ToLowerInvariant();
+        content.Children.Add(BuildNgrokSection());
         content.Children.Add(BuildCloudflaredComponentSection(componentState));
-        if (!string.Equals(componentState, "ready", StringComparison.Ordinal))
+        if (!string.Equals(componentState, "ready", StringComparison.Ordinal) &&
+            !string.Equals(_snapshot?.TunnelMode, "ngrok", StringComparison.OrdinalIgnoreCase))
         {
             if (!string.IsNullOrWhiteSpace(_advancedStatus))
             {
@@ -662,6 +664,122 @@ public sealed partial class SettingsPage : Page
             });
         }
         return content;
+    }
+
+    private SectionCard BuildNgrokSection()
+    {
+        var content = new StackPanel { Spacing = 11, Padding = new Thickness(13, 12, 13, 14) };
+        var selected = string.Equals(_snapshot?.TunnelMode, "ngrok", StringComparison.OrdinalIgnoreCase);
+        var running = selected && _snapshot?.CloudflaredRunning == true;
+        var state = new TextBlock
+        {
+            Text = running ? "● ngrok HTTPS 已连接"
+                : selected ? "● 正在启动 / 检查 ngrok"
+                : "○ 未启用（可替代 Cloudflare Tunnel）",
+            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                running ? Microsoft.UI.Colors.Green : selected ? Microsoft.UI.Colors.DarkOrange : Microsoft.UI.Colors.Gray),
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        };
+        content.Children.Add(state);
+        content.Children.Add(new TextBlock
+        {
+            Text = "首次启用自动从 ngrok 官方下载 Windows Agent，并验证其数字签名。" +
+                   "公网入口沿用 AgentDock 原生 Bearer Token；不通过本地鉴权检查则禁止暴露。",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11.5,
+            Opacity = 0.72
+        });
+        var editor = new StackPanel { Spacing = 9 };
+        var token = new PasswordBox
+        {
+            Header = "ngrok Authtoken",
+            PlaceholderText = _runtime?.HasNgrokToken() == true ? "已安全保存（留空沿用）" : "输入 ngrok 账号的 Authtoken",
+            Tag = "ngrok-token"
+        };
+        editor.Children.Add(token);
+        var domain = new TextBox
+        {
+            Header = "保留域名（可选）",
+            PlaceholderText = "https://your-domain.ngrok-free.app",
+            Text = _runtime?.ReadNgrokDomain() ?? "",
+            Tag = "ngrok-domain"
+        };
+        editor.Children.Add(domain);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 9 };
+        var connect = new Button
+        {
+            Content = selected ? "重新连接 ngrok" : "启用 ngrok HTTPS",
+            Tag = editor,
+            IsEnabled = !_componentOperationInProgress
+        };
+        connect.Click += EnableNgrok_Click;
+        actions.Children.Add(connect);
+        if (selected)
+        {
+            var disable = new Button { Content = "关闭 ngrok", IsEnabled = !_componentOperationInProgress };
+            disable.Click += DisableNgrok_Click;
+            actions.Children.Add(disable);
+        }
+        var openAccount = new HyperlinkButton { Content = "获取 ngrok Authtoken" };
+        openAccount.Click += (_, _) => OpenExternalUrl("https://dashboard.ngrok.com/get-started/your-authtoken");
+        actions.Children.Add(openAccount);
+        editor.Children.Add(actions);
+        content.Children.Add(editor);
+        if (selected && !string.IsNullOrWhiteSpace(_snapshot?.PublicMcpUrl))
+        {
+            var copy = new Button { Content = "复制 HTTPS MCP 地址" };
+            copy.Click += (_, _) => CopyText(_snapshot!.PublicMcpUrl);
+            content.Children.Add(DetailActionRow("公网 MCP 入口", _snapshot!.PublicMcpUrl, copy));
+        }
+        return new SectionCard
+        {
+            Title = "ngrok 平台",
+            SectionContent = content
+        };
+    }
+
+    private async void EnableNgrok_Click(object sender, RoutedEventArgs e)
+    {
+        if (_runtime is null || sender is not Button button || button.Tag is not Panel editor) return;
+        var token = FindTagged<PasswordBox>(editor, "ngrok-token")?.Password.Trim() ?? "";
+        var domain = FindTagged<TextBox>(editor, "ngrok-domain")?.Text.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(token) && !_runtime.HasNgrokToken())
+        {
+            _advancedStatus = "请先填写 ngrok Authtoken。";
+            Render("advancedConnection");
+            return;
+        }
+        button.IsEnabled = false;
+        button.Content = "正在建立 ngrok 连接…";
+        try
+        {
+            await _runtime.SetTunnelModeAsync("ngrok", domain, token);
+            await RefreshAsync();
+            _advancedStatus = "ngrok 已连接，可复制公网 MCP 地址。";
+        }
+        catch (Exception ex)
+        {
+            _advancedStatus = "ngrok 启动失败：" + ex.Message;
+        }
+        Render("advancedConnection");
+    }
+
+    private async void DisableNgrok_Click(object sender, RoutedEventArgs e)
+    {
+        if (_runtime is null || sender is not Button button) return;
+        button.IsEnabled = false;
+        try
+        {
+            await _runtime.SetTunnelModeAsync("none", "", "");
+            await RefreshAsync();
+            _advancedStatus = "ngrok 已停止。";
+        }
+        catch (Exception ex)
+        {
+            _advancedStatus = "停止 ngrok 失败：" + ex.Message;
+        }
+        Render("advancedConnection");
     }
 
     private SectionCard BuildCloudflaredComponentSection(string state)

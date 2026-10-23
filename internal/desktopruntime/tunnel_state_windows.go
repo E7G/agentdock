@@ -114,6 +114,14 @@ func prepareCloudflaredRuntime(ctx context.Context, runtime *tunnelRuntime) erro
 	if runtime == nil || runtime.mode == "none" {
 		return nil
 	}
+	if runtime.mode == "ngrok" {
+		binary, err := resolveNgrokBinary(ctx, runtime.root)
+		if err != nil {
+			return err
+		}
+		runtime.manifest.CloudflaredBinary = binary
+		return nil
+	}
 	binary, err := resolveCloudflaredComponent(ctx, runtime.root)
 	if err != nil {
 		return err
@@ -137,6 +145,11 @@ func cloudflaredStopCandidates(runtime tunnelRuntime) []string {
 	// 停止/切回 none 是恢复路径，不能因为 active pointer 损坏就失去停止旧进程的能力。
 	// 这里只把历史 AgentDock 固定路径作为“停止候选”，不会执行、导入或采用它。
 	paths = append(paths, component.LegacyPaths(runtime.root)...)
+	if runtime.mode == "ngrok" {
+		if binary := availableNgrokBinary(runtime.root); binary != "" {
+			paths = append(paths, binary)
+		}
+	}
 	seen := map[string]struct{}{}
 	result := make([]string, 0, len(paths))
 	for _, path := range paths {
@@ -166,7 +179,7 @@ func readTunnelMode(path, fallback string) (string, error) {
 	if mode == "" {
 		mode = "none"
 	}
-	if mode != "none" && mode != "quick" && mode != "named" {
+	if mode != "none" && mode != "quick" && mode != "named" && mode != "ngrok" {
 		return "", fmt.Errorf("不支持的 Cloudflare Tunnel 模式：%s", mode)
 	}
 	return mode, nil
