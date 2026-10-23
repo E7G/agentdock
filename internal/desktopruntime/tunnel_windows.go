@@ -87,7 +87,12 @@ func platformLaunchTunnel(ctx context.Context, runtimeRoot string) error {
 		}
 
 		startedAt := time.Now()
-		runErr := runCloudflaredOnce(ctx, runtime, logs)
+		var runErr error
+		if runtime.mode == "ngrok" {
+			runErr = runNgrokOnce(ctx, runtime, logs)
+		} else {
+			runErr = runCloudflaredOnce(ctx, runtime, logs)
+		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -104,7 +109,7 @@ func platformLaunchTunnel(ctx context.Context, runtimeRoot string) error {
 			fmt.Fprintln(logs.stderr, "cloudflared 意外退出，准备自动恢复")
 		}
 
-		if runtime.mode == "quick" {
+		if runtime.mode == "quick" || runtime.mode == "ngrok" {
 			if err := invalidateQuickTunnelAfterExit(ctx, runtime); err != nil {
 				fmt.Fprintf(logs.stderr, "清理失效 Quick Tunnel 状态失败: %v\n", err)
 			}
@@ -163,6 +168,34 @@ func platformTunnelStatus(ctx context.Context, runtimeRoot string) (TunnelStatus
 	if err != nil {
 		return TunnelStatus{}, err
 	}
+	if runtime.mode == "ngrok" {
+		binary := availableNgrokBinary(runtime.root)
+		state := "not_installed"
+		running := false
+		if binary != "" {
+			state = "ready"
+			running, err = processRunningAtPath(binary)
+			if err != nil {
+				return TunnelStatus{}, err
+			}
+		}
+		startup, err := tunnelAutostartEnabled(runtime.manifest)
+		if err != nil {
+			return TunnelStatus{}, err
+		}
+		publicURL, err := readTunnelPublicURL(runtime)
+		if err != nil {
+			return TunnelStatus{}, err
+		}
+		if !running {
+			publicURL = ""
+		}
+		return TunnelStatus{
+			Mode: "ngrok", Running: running, Ready: running && publicURL != "",
+			StartupEnabled: startup, PublicURL: publicURL,
+			DependencyState: state, ComponentVersion: "ngrok v3",
+		}, nil
+	}
 	componentStatus := cloudflaredComponentStatus(runtime.root)
 	running := false
 	if runtime.mode != "none" && componentStatus.Ready {
@@ -209,7 +242,7 @@ func platformTunnelAction(ctx context.Context, runtimeRoot, action string) error
 	case "stop":
 		return stopTunnel(ctx, runtime)
 	case "restart":
-		if runtime.mode == "quick" {
+		if runtime.mode == "quick" || runtime.mode == "ngrok" {
 			return regenerateQuickTunnel(ctx, runtime)
 		}
 		if err := stopTunnel(ctx, runtime); err != nil {
@@ -262,7 +295,7 @@ func startTunnel(ctx context.Context, runtime tunnelRuntime) error {
 		return err
 	}
 	if running && supervisorPID != 0 {
-		if runtime.mode == "quick" {
+		if runtime.mode == "quick" || runtime.mode == "ngrok" {
 			return waitQuickTunnelReady(ctx, runtime, quickTunnelStartTimeout)
 		}
 		return nil
@@ -285,7 +318,7 @@ func startTunnel(ctx context.Context, runtime tunnelRuntime) error {
 	}
 
 	var namedLogCursors tunnelLogCursors
-	if runtime.mode == "quick" {
+	if runtime.mode == "quick" || runtime.mode == "ngrok" {
 		// 旧临时地址在新进程真正拿到 URL 前不能继续暴露为 ready。
 		if err := clearActivePublicURL(runtime.files); err != nil {
 			return err
@@ -307,7 +340,7 @@ func startTunnel(ctx context.Context, runtime tunnelRuntime) error {
 	if err := waitCloudflaredRunning(ctx, runtime.manifest.CloudflaredBinary, 20*time.Second); err != nil {
 		return err
 	}
-	if runtime.mode == "quick" {
+	if runtime.mode == "quick" || runtime.mode == "ngrok" {
 		return waitQuickTunnelReady(ctx, runtime, quickTunnelStartTimeout)
 	}
 	return waitNamedTunnelReady(ctx, runtime, namedLogCursors, namedTunnelStartTimeout)
@@ -400,7 +433,7 @@ func applyQuickTunnelURL(ctx context.Context, runtime tunnelRuntime, publicURL s
 	if err := platformServiceAction(ctx, runtime.root, "restart"); err != nil {
 		return err
 	}
-	if err := runtime.updateManifest("quick", publicURL); err != nil {
+	if err := runtime.updateManifest(runtime.mode, publicURL); err != nil {
 		return err
 	}
 	// ready 文件最后写入，保证桌面端读到地址时核心已经采用新 OAuth Origin。
@@ -554,7 +587,7 @@ func readTunnelPublicURL(runtime tunnelRuntime) (string, error) {
 	if runtime.mode == "none" {
 		return "", nil
 	}
-	if runtime.mode == "quick" {
+	if runtime.mode == "quick" || runtime.mode == "ngrok" {
 		return readTrimmedText(runtime.files.quickURL)
 	}
 	return readTrimmedText(runtime.files.serverURL)

@@ -92,7 +92,7 @@ func RunTunnelCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 			return errors.New("用法：agentdock tunnel configure [--runtime-root <目录>] --mode <none|quick|named> [--server-url <HTTPS Origin>] [--token-file <文件>]")
 		}
 		normalizedMode := strings.ToLower(strings.TrimSpace(*mode))
-		if normalizedMode != "none" && normalizedMode != "quick" && normalizedMode != "named" {
+		if normalizedMode != "none" && normalizedMode != "quick" && normalizedMode != "named" && normalizedMode != "ngrok" {
 			return errors.New("tunnel configure 的 mode 必须是 none、quick 或 named")
 		}
 		request := TunnelConfigureRequest{

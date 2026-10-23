@@ -254,7 +254,7 @@ func (manifest Manifest) Validate() error {
 	if err := validateHTTPURL(manifest.LocalMCPURL, false); err != nil {
 		return fmt.Errorf("invalid local_mcp_url: %w", err)
 	}
-	if manifest.TunnelMode != "none" && manifest.TunnelMode != "quick" && manifest.TunnelMode != "named" {
+	if manifest.TunnelMode != "none" && manifest.TunnelMode != "quick" && manifest.TunnelMode != "named" && manifest.TunnelMode != "ngrok" {
 		return fmt.Errorf("unsupported Windows tunnel mode: %s", manifest.TunnelMode)
 	}
 	if manifest.TunnelMode == "none" && strings.TrimSpace(manifest.PublicURL) != "" {
@@ -267,7 +267,7 @@ func (manifest Manifest) Validate() error {
 	}
 	// Quick Tunnel 地址要等 cloudflared ready 才有。trial 阶段允许先写 quick 且 public_url 为空，
 	// 避免安装器为了通过校验把 tunnel-mode 改成 none，导致 Engine 根本不启动 Tunnel。
-	if manifest.TunnelMode == "quick" && strings.TrimSpace(manifest.PublicURL) != "" {
+	if (manifest.TunnelMode == "quick" || manifest.TunnelMode == "ngrok") && strings.TrimSpace(manifest.PublicURL) != "" {
 		if err := validateHTTPURL(manifest.PublicURL, true); err != nil {
 			return fmt.Errorf("invalid public_url: %w", err)
 		}

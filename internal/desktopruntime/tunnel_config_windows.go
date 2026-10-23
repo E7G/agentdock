@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -33,6 +34,27 @@ func platformConfigureTunnel(ctx context.Context, request TunnelConfigureRequest
 	}
 
 	namedServerURL := ""
+	if request.Mode == "ngrok" {
+		providedToken, err := readSecretFile(request.TokenFile)
+		if err != nil {
+			return err
+		}
+		tokenPath := filepath.Join(runtime.root, "ngrok-token.dpapi")
+		if providedToken != "" {
+			if err := writeProtectedText(tokenPath, providedToken, ngrokTokenEntropy); err != nil {
+				return err
+			}
+		}
+		stored, err := readProtectedText(tokenPath, ngrokTokenEntropy)
+		if err != nil || strings.TrimSpace(stored) == "" {
+			return errors.New("ngrok authtoken is required")
+		}
+		if strings.TrimSpace(request.ServerURL) != "" {
+			if _, err := normalizeHTTPSOrigin(request.ServerURL); err != nil {
+				return err
+			}
+		}
+	}
 	if request.Mode == "named" {
 		candidate := strings.TrimSpace(request.ServerURL)
 		if candidate == "" {
@@ -102,6 +124,27 @@ func platformConfigureTunnel(ctx context.Context, request TunnelConfigureRequest
 			return err
 		}
 		runtime.mode = "quick"
+		return startTunnel(ctx, runtime)
+	case "ngrok":
+		if err := writeRuntimeText(filepath.Join(runtime.root, "ngrok-domain.txt"), strings.TrimSpace(request.ServerURL)); err != nil {
+			return err
+		}
+		if err := clearActivePublicURL(runtime.files); err != nil {
+			return err
+		}
+		if err := writeRuntimeText(runtime.files.mode, "ngrok"); err != nil {
+			return err
+		}
+		if err := runtime.updateManifest("none", ""); err != nil {
+			return err
+		}
+		if err := platformSetTunnelAutostart(ctx, runtime.root, true); err != nil {
+			return err
+		}
+		if err := platformServiceAction(ctx, runtime.root, "restart"); err != nil {
+			return err
+		}
+		runtime.mode = "ngrok"
 		return startTunnel(ctx, runtime)
 	case "named":
 		if err := writeRuntimeText(runtime.files.namedServerURL, namedServerURL); err != nil {

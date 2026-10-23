@@ -1,0 +1,96 @@
+name: AgentDock Ngrok Windows Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/native-ngrok-windows-20261023
+    paths:
+      - ".github/workflows/ngrok-windows-package.yml"
+      - "internal/desktopruntime/**"
+      - "desktop/windows/**"
+      - "packaging/**"
+      - "cmd/**"
+      - "go.*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build original AgentDock with ngrok (Windows x64)
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Test native tunnel and authentication
+        shell: pwsh
+        run: |
+          go test ./internal/desktopruntime ./internal/auth ./internal/config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build original Windows runtime and WinUI
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "0.9.99-ngrok"
+          $windowsVersion = "0.9.99.0"
+          $sha = (git rev-parse --short HEAD).Trim()
+          $stamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+          $ldflags = "-s -w -X github.com/uvwt/agentdock/internal/buildinfo.Version=$version -X github.com/uvwt/agentdock/internal/buildinfo.Commit=$sha -X github.com/uvwt/agentdock/internal/buildinfo.BuildDate=$stamp"
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          go build -trimpath -ldflags $ldflags -o dist/agentdock.exe ./cmd/agentdock
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags $ldflags -o dist/agentdock-arbiter.exe ./cmd/agentdock-arbiter
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags $ldflags -o dist/agentdock-shim.exe ./cmd/agentdock-shim
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags "$ldflags -H=windowsgui" -o dist/agentdock-tray-shim.exe ./cmd/agentdock-shim
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\packaging\windows\build-wsl-helper-payload.ps1 -OutputDirectory .\dist\wsl-helper
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish .\desktop\windows\winui\AgentDock.WinUI.csproj -c Release -r win-x64 --self-contained false -p:Platform=x64 -p:Version=$windowsVersion -p:FileVersion=$windowsVersion -p:AssemblyVersion=$windowsVersion -p:InformationalVersion=$version -o dist\control-panel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item dist\control-panel\agentdock-tray.exe dist\agentdock-tray.exe -Force
+          & .\packaging\windows\set-version-info.ps1 -Version $windowsVersion -ProductVersion $version -Path @('.\dist\agentdock.exe', '.\dist\agentdock-tray.exe', '.\dist\agentdock-arbiter.exe', '.\dist\agentdock-shim.exe', '.\dist\agentdock-tray-shim.exe')
+      - name: Package portable original AgentDock
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python .\packaging\build-core-skill-bundle.py --output dist\share\agentdock\core-skills
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item .\packaging\windows\assets\agentdock.ico dist\agentdock.ico -Force
+          Copy-Item .\packaging\windows\compat\manage-windows.ps1 dist\manage-windows.ps1 -Force
+          Copy-Item .\dist\agentdock-tray.exe .\dist\control-panel\agentdock-tray.exe -Force
+          $zip = "agentdock_windows_amd64.zip"
+          Compress-Archive -Path dist\agentdock.exe, dist\agentdock-tray.exe, dist\agentdock-arbiter.exe, dist\agentdock-shim.exe, dist\agentdock-tray-shim.exe, dist\agentdock.ico, dist\manage-windows.ps1, dist\control-panel, dist\share, dist\wsl-helper -DestinationPath $zip -Force
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$zip.sha256", "$hash  $zip" + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+      - name: Build unsigned installable Setup
+        shell: pwsh
+        run: |
+          $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          if (-not $compiler) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          & .\packaging\windows\build-windows-setup.ps1 -Version '0.9.99.0' -Architecture amd64 -AgentDockArchive '.\agentdock_windows_amd64.zip' -AgentDockChecksumFile '.\agentdock_windows_amd64.zip.sha256' -OutputDirectory '.\dist-installer'
+      - name: Upload finished Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentDock-original-ngrok-Windows-x64
+          path: |
+            agentdock_windows_amd64.zip
+            agentdock_windows_amd64.zip.sha256
+            dist-installer/AgentDockSetup-amd64.exe
+          if-no-files-found: error
+          retention-days: 30
