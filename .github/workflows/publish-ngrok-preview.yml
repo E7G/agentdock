@@ -1,0 +1,38 @@
+name: Publish AgentDock ngrok preview
+on:
+  push:
+    branches: [feature/native-ngrok-windows-20261023]
+    paths: [.github/workflows/publish-ngrok-preview.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: AgentDock-original-ngrok-Windows-x64
+          run-id: 40029441003
+          github-token: ${{ github.token }}
+          path: out
+      - name: Verify downloaded Windows build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd out
+          sha256sum --check agentdock_windows_amd64.zip.sha256
+          test -s dist-installer/AgentDockSetup-amd64.exe
+          test -s agentdock_windows_amd64.zip
+      - name: Upload preview binaries and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: E7G/agentdock
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload v0.9.99-ngrok-20261023 out/dist-installer/AgentDockSetup-amd64.exe out/agentdock_windows_amd64.zip --clobber
+          gh release edit v0.9.99-ngrok-20261023 --draft=false --prerelease
+          gh release view v0.9.99-ngrok-20261023 --json url,isDraft,assets --jq '{url:.url,draft:.isDraft,assets:[.assets[].name]}'
