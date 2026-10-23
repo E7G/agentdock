@@ -6,6 +6,8 @@
 
 # AgentDock MCP
 
+> **Qt Widgets Windows 托盘桌面版（本 Fork 新增）**：参见 [desktop/qtwidgets/README.md](desktop/qtwidgets/README.md)。保留 AgentDock Go 核心的原生 Bearer/OAuth 鉴权，提供 Qt 系统托盘、可视化进程控制和 ngrok。
+
 **让 AI 的双手，真正触达你的每一台设备。**
 
 打开网页版 ChatGPT，即可管理多台电脑与服务器：在真实设备上写代码、改配置、跑命令与部署，执行发生在你的机器上，不消耗Codex额度。

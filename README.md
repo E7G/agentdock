@@ -6,6 +6,8 @@ English | [简体中文](./README.zh-CN.md)
 
 # AgentDock MCP
 
+> **Qt Widgets Windows 托盘桌面版（本 Fork 新增）**：参见 [desktop/qtwidgets/README.md](desktop/qtwidgets/README.md)。保留 AgentDock Go MCP 核心的原生 Bearer/OAuth 鉴权，复用原生 Qt MCP 项目的 ngrok 管理逻辑。
+
 **Give AI agents secure, controlled access to every machine you operate.**
 
 Open ChatGPT in your browser and manage multiple computers and servers from one conversation. Write code, change configuration, run commands, and deploy in the real environment where the work belongs—without consuming a dedicated Codex coding quota.

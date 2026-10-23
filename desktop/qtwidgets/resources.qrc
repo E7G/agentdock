@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file alias="agentdock.png">assets/agentdock.png</file>
+  </qresource>
+</RCC>

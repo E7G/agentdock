@@ -31,5 +31,11 @@ __pycache__/
 /agentdock.env
 /cloudflared.env
 
+# Qt Widgets desktop build and portable package (never commit binaries)
+/desktop/qtwidgets/build*/
+/desktop/qtwidgets/dist/
+/desktop/qtwidgets/.cache/
+/desktop/qtwidgets/*.zip
+
 # IDE
 /.idea

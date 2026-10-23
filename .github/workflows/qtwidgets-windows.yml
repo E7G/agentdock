@@ -1,0 +1,65 @@
+name: AgentDock Qt Widgets Windows
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/qtwidgets/**'
+      - '.github/workflows/qtwidgets-windows.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/qtwidgets/**'
+      - '.github/workflows/qtwidgets-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qt-windows:
+    name: Build Qt tray, Go core and test AgentDock auth
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Go toolchain
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Qt 6.8.3 MSVC
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+
+      - name: Build portable Qt desktop + Go core
+        shell: pwsh
+        run: |
+          $env:QT_ROOT = $env:QT_ROOT_DIR
+          if (!$env:QT_ROOT -or !(Test-Path (Join-Path $env:QT_ROOT 'bin'))) {
+            throw 'Qt installation path is missing'
+          }
+          ./desktop/qtwidgets/build_windows.ps1
+
+      - name: Test native AgentDock Bearer authentication
+        shell: pwsh
+        run: |
+          ./desktop/qtwidgets/tests/auth_smoke.ps1 -CorePath "$PWD/desktop/qtwidgets/dist/agentdock.exe" -Port 39771
+
+      - name: Create Windows portable zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path desktop/qtwidgets/dist/* -DestinationPath agentdock-qt-windows-x64.zip -CompressionLevel Optimal
+
+      - name: Upload portable desktop build
+        uses: actions/upload-artifact@v5
+        with:
+          name: agentdock-qt-windows-x64
+          path: agentdock-qt-windows-x64.zip
+          if-no-files-found: error
